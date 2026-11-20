@@ -162,6 +162,19 @@ function shortError(error) {
 }
 
 export function apply(ctx, config = {}) {
+  const routes = createMediaRoutes(config, {
+    logger: ctx.logger,
+    timer: () => ctx.get('timer'),
+    agents: () => ctx.get('agents'),
+    warm: true,
+  })
+  ctx.inject(['webServer'], (web) => ctx.effect(() => {
+    const stops = routes.map(route => web.webServer.register({ kind: 'prefix', ...route }))
+    return () => stops.forEach(stop => stop())
+  }, 'hongguo: routes'))
+}
+
+export function createMediaRoutes(config = {}, host = {}) {
   // `apply` stays synchronous for the Loader; the resolved config arrives by
   // the time any route is asked for it.
   const settings = reflectConfig(config)
@@ -177,7 +190,7 @@ export function apply(ctx, config = {}) {
   let games = []
   let gamesAt = 0
 
-  const logger = ctx.logger ?? { info() {}, warn() {}, error() {} }
+  const logger = host.logger ?? { info() {}, warn() {}, error() {} }
   const VENDOR_DIR = join(dirname(fileURLToPath(import.meta.url)), 'vendor')
   const coverDir = join(dataDir, 'covers')
   const mediaDir = join(dataDir, 'media')
@@ -819,7 +832,7 @@ export function apply(ctx, config = {}) {
       try {
         // Bound every data route so a slow upstream never pins the request.
         const work = Promise.resolve().then(fn)
-        const timer = ctx.get('timer')
+        const timer = host.timer?.()
         const limit = timer
           ? Promise.race([work, timer.timeout(45_000).then(() => Promise.reject(Object.assign(new Error('上游响应超时'), { code: 'TIMEOUT' })))])
           : work
@@ -973,7 +986,7 @@ export function apply(ctx, config = {}) {
     }
 
     if (path === '/running') {
-      const agents = ctx.get('agents')
+      const agents = host.agents?.()
       const list = agents?.list?.() ?? []
       return json(async () => ({
         running: list.some((agent) => agent?.status === 'running'),
@@ -1212,12 +1225,12 @@ export function apply(ctx, config = {}) {
 
   // Build the list once at startup so the first page view does not wait for a
   // cold anonymous device.
-  refreshFeed()
+  if (host.warm) refreshFeed()
   // 备用片源只在被设成默认时才预热（它没有冷设备的问题，第一次切换自己会拉）。
-  ready.then(() => { if (readConfig().source === HGHUB_SOURCE) refreshHghub() }).catch(() => {})
+  if (host.warm) ready.then(() => { if (readConfig().source === HGHUB_SOURCE) refreshHghub() }).catch(() => {})
 
   // The Web server is optional in non-web profiles; everything else still works.
-  ctx.inject(['webServer'], (web) => {
+  {
     const guard = (fn) => (request, response) =>
       Promise.resolve(fn(request, response)).catch((error) => {
         logger.warn?.(`[hongguo] route error: ${error?.stack ?? error}`)
@@ -1235,21 +1248,12 @@ export function apply(ctx, config = {}) {
       serveWindow(request, response, new URL(request.url, `http://${request.headers.host ?? 'localhost'}`)),
     )
     // One effect owns every route, so unloading the plugin frees them together.
-    const dispose = ctx.effect(
-      () => {
-        const stops = [
-          web.webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: data }),
-          web.webServer.register({ kind: 'prefix', path: VENDOR_PREFIX, handler: vendor }),
-          web.webServer.register({ kind: 'prefix', path: COVER_PREFIX, handler: cover }),
-          // Before the API prefix in intent, though the router prefers the
-          // longest match: `/api/hongguo/window` is its own document.
-          web.webServer.register({ kind: 'prefix', path: WINDOW_PREFIX, handler: windowed }),
-        ]
-        return () => stops.forEach((stop) => stop())
-      },
-      'hongguo: routes',
-    )
-    return dispose
-  })
+    return [
+      { path: VENDOR_PREFIX, handler: vendor },
+      { path: COVER_PREFIX, handler: cover },
+      { path: WINDOW_PREFIX, handler: windowed },
+      { path: ROUTE_PREFIX, handler: data },
+    ]
+  }
 
 }

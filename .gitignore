@@ -6,3 +6,4 @@ work/
 downloads/
 profile.json
 package-lock.json
+.codex/hooks.json
