@@ -1,5 +1,24 @@
 # dsh-hongguo
 
+## 在 Codex 或其他本地 Agent 中播放
+
+需要 Node.js 20 或更高版本。在仓库目录运行 `npm run player`，浏览器会打开本机播放器。让终端保持运行，按 Ctrl+C 退出。仅启动服务可用 `node agent/cli.js serve`。浏览器地址固定为 `http://127.0.0.1:47831`，便于下次沿用同一份播放记录。
+
+选择本地视频，或粘贴 MP4、WebM、HLS 地址。普通网页会提供原站入口，原站自行播放。直链需要可用的视频编码，HLS 还取决于来源允许浏览器跨域读取。本地文件重新打开页面后须重新选择同一文件，可恢复进度。独立短剧列表位于“内置剧库”，使用原来的播放页面。任务跟随目前用于自选媒体页。
+
+在要接入的受信任项目根目录运行 `node "<本仓库绝对路径>/agent/cli.js" install-hooks`，再到 Codex 的 Settings → Hooks 审核。安装器遇到已有 hooks.json 会停止；可用 `hook-config` 输出配置，按事件合并到已有 hooks 列表。安装生成的配置包含本机绝对路径。请在新聊天发送一次消息，让会话出现在播放器里，选中它并点“启用跟随”。超过三秒的任务会触发播放，批准请求、停止和中断会触发暂停，工具完成后可恢复。手动暂停后，重新启用跟随即可恢复自动播放。Hook 离线时静默返回，仅上报会话、轮次和状态。
+
+其他 Agent 可以在自己的事件回调中调用同一命令，或用包装脚本在任务开始和 finally 分支调用。使用不同宿主前缀的会话名，并为每轮分配新 ID：
+
+```sh
+node agent/cli.js event start --session myagent:chat1 --turn task1
+node agent/cli.js event waiting --session myagent:chat1 --turn task1
+node agent/cli.js event resume --session myagent:chat1 --turn task1
+node agent/cli.js event finish --session myagent:chat1 --turn task1
+```
+
+服务和适配器使用同一用户目录中的随机控制令牌，可通过 `AGENT_PLAYER_HOME` 同时指定私有数据目录。任务状态保存在服务内存中。网页端 ChatGPT 需要宿主另行提供任务事件。运行 `npm test` 执行离线测试。
+
 摸鱼短剧：一个 DSH 插件，在右侧边栏里播一部短剧，Agent 干活的时候提示你把它调出来。
 
 数据来自 [openhongguo](https://github.com/beilunyang/openhongguo)（第三方短剧平台的非官方 SDK，匿名设备、无需登录）。请仅用于个人学习与研究，内容版权归权利人所有。
